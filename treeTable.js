@@ -54,7 +54,7 @@
     }
 
     function level(self, key) {
-        if (key === 0) {
+        if (typeof self.dataDict[key]=== 'undefined') {
             return 1
         }
 
@@ -65,17 +65,16 @@
     function hasParent(self, key, parentRegex) {
         const rowData = self.dataDict[key];
         const p = rowData['tt_parent'];
-        if (p === 0) return false;
+        if (typeof self.dataDict[p] === 'undefined') return false;
         if (parentRegex.test(p.toString())) return true;
         return hasParent(self, p, parentRegex);
     }
 
     function buildOrderObject(self, key, column) {
-
         const rowData = self.dataDict[key];
         const parentKey = rowData['tt_parent'];
         let parent = {};
-        if (parentKey > 0) {
+        if (typeof self.dataDict[parentKey] !== 'undefined') {
             parent = buildOrderObject(self, parentKey, column);
         }
         let a = parent;
