@@ -23,74 +23,113 @@
     }
 }(function ($) {
 
+    function getPath(a) {
+        if (typeof a.parent !== 'undefined') {
+            result = getPath(a.parent);
+        } else {
+            result = new Array();
+        }
+        result.push(a);
+        return result;
+    }
+
+    function logPath(apath) {
+        a = "";
+        for (i = 0; i < apath.length; i++) {
+            a = a + "/" + apath[i].key;
+        }
+        return a;
+    }
+
     function compareObjectDesc(a, b) {
         if (!a || !b) {
             return 0
         }
-        if (a.tt_key !== b.tt_key) {
-            return ((a.value < b.value) ? 1 : ((a.value > b.value) ? -1 : 0));
-        } else if (typeof a.child === 'undefined' && typeof b.child === 'undefined') {
-            return ((a.value < b.value) ? 1 : ((a.value > b.value) ? -1 : 0));
-        } else if (typeof a.child !== 'undefined' && typeof b.child !== 'undefined') {
-            return compareObjectDesc(a.child, b.child);
-        } else {
-            return typeof a.child !== 'undefined' ? 1 : -1;
+
+        apath = getPath(a);
+        bpath = getPath(b);
+
+        min = Math.min(apath.length, bpath.length);
+        res = 0;
+        
+        for (i = 0; i < min; i++) {
+            if (apath[i].key != bpath[i].key) {
+                res = ((apath[i].val < bpath[i].val) ? 1 : ((apath[i].val > bpath[i].val) ? -1 : 0));
+                if (res==0) {
+                    res = ((apath[i].key < bpath[i].key) ? 1 : ((apath[i].key > bpath[i].key) ? -1 : 0));
+                }
+                break;
+            }
         }
+        
+        if (!a.hasChild && !b.hasChild && typeof a.parent !== 'undefined' && typeof b.parent !== 'undefined' && a.parent.key == b.parent.key) {
+            res = ((a.val < b.val) ? 1 : ((a.val > b.val) ? -1 : 0));
+        }
+        return res;
     }
 
     function compareObjectAsc(a, b) {
         if (!a || !b) {
             return 0
         }
-        if (a.tt_key !== b.tt_key) {
-            return ((a.value < b.value) ? -1 : ((a.value > b.value) ? 1 : 0));
-        } else if (typeof a.child === 'undefined' && typeof b.child === 'undefined') {
-            return ((a.value < b.value) ? -1 : ((a.value > b.value) ? 1 : 0));
-        } else if (typeof a.child !== 'undefined' && typeof b.child !== 'undefined') {
-            return compareObjectAsc(a.child, b.child);
-        } else {
-            return typeof a.child !== 'undefined' ? 1 : -1;
+        apath = getPath(a);
+        bpath = getPath(b);
+        min = Math.min(apath.length, bpath.length);
+        res = 0;
+        
+        for (i = 0; i < min; i++) {
+            if (apath[i].key != bpath[i].key) {
+                res = ((apath[i].val < bpath[i].val) ? -1 : ((apath[i].val > bpath[i].val) ? 1 : 0));
+                if (res==0) {
+                    res = ((apath[i].key < bpath[i].key) ? -1 : ((apath[i].key > bpath[i].key) ? 1 : 0));
+                }
+                break;
+            }
         }
+        
+        if (!a.hasChild && !b.hasChild && typeof a.parent !== 'undefined' && typeof b.parent !== 'undefined' && a.parent.key == b.parent.key) {
+            res = ((a.val < b.val) ? -1 : ((a.val > b.val) ? 1 : 0));
+        }
+        return res;
     }
 
     function level(self, key) {
-        if (typeof self.dataDict[key]=== 'undefined') {
+        if (typeof self.dataDict[key] === 'undefined') {
             return 1
         }
 
-        const parentKey = self.dataDict[key].tt_parent;
+        const parentKey = self.dataDict[key][self['parentRowId']];
         return 1 + level(self, parentKey);
     }
 
     function hasParent(self, key, parentRegex) {
         const rowData = self.dataDict[key];
-        const p = rowData['tt_parent'];
+        const p = rowData[self['parentRowId']];
         if (typeof self.dataDict[p] === 'undefined') return false;
         if (parentRegex.test(p.toString())) return true;
         return hasParent(self, p, parentRegex);
     }
 
-    function buildOrderObject(self, key, column) {
-        const rowData = self.dataDict[key];
-        const parentKey = rowData['tt_parent'];
-        let parent = {};
-        if (typeof self.dataDict[parentKey] !== 'undefined') {
-            parent = buildOrderObject(self, parentKey, column);
+
+    function buildOrderObject(self, keyRowId, parentRowId, coldata, full) {
+
+        let current = {
+            'key': full[keyRowId],
+            'val': full[coldata],
+            'hasChild': full['hasChild']
         }
-        let a = parent;
-        while (typeof a.child !== 'undefined') {
-            a = a.child;
+        let parent = self.dataDict[full[parentRowId]];
+        if (typeof parent !== 'undefined') {
+            parent = buildOrderObject(self, keyRowId, parentRowId, coldata, self.dataDict[full[parentRowId]]);
+            current['parent'] = parent;
         }
-        a.child = {};
-        a.child.tt_key = rowData['tt_key'];
-        a.child.value = rowData[column];
-        return parent;
+        return current;
     }
 
     function buildSearchObject(self, key, col, data) {
         const children = self.dataDict[key].children;
         return [data].concat(children.map((c) => {
-            return buildSearchObject(self, c.tt_key, col, c[col])
+            return buildSearchObject(self, c[self['keyRowId']], col, c[col])
         }));
     }
 
@@ -104,11 +143,11 @@
         return compareObjectDesc(a, b);
     };
 
-    function createDataDict(data) {
+    function createDataDict(self, data) {
         return data.reduce(function (map, obj) {
-            obj.children = data.filter((d) => d["tt_parent"] === obj.tt_key);
+            obj.children = data.filter((d) => d[self['parentRowId']] === obj[self['keyRowId']]);
             obj.hasChild = obj.children.length > 0;
-            map[obj.tt_key] = obj;
+            map[obj[self['keyRowId']]] = obj;
             return map;
         }, {});
     }
@@ -116,6 +155,14 @@
     const TreeTable = function (element, options) {
         const self = this;
         this.$el = $(element);
+
+        if (typeof options.tt_parent === 'undefined') {
+            options.tt_parent = "tt_parent";
+        }
+        if (typeof options.tt_key === 'undefined') {
+            options.tt_key = "tt_key";
+        }
+
         if (options.data) {
             this.init(options);
         } else if (options.ajax) {
@@ -126,7 +173,10 @@
 
             $("body").append(this.$dummyWrapper);
             this.$dummyWrapper.append(this.$dummy);
-            this.$dummy.DataTable({ajax: options.ajax, columns: options.columns});
+            this.$dummy.DataTable({
+                ajax: options.ajax,
+                columns: options.columns
+            });
 
             this.$dummy.on('xhr.dt', function (e, settings, json, xhr) {
                 self.$dummy.DataTable().destroy();
@@ -144,11 +194,13 @@
 
     TreeTable.prototype.init = function (options) {
         const self = this;
+        this.parentRowId = options.tt_parent;
+        this.keyRowId = options.tt_key;
 
         this.collapsed = new Set([]);
 
         this.data = options.data;
-        this.dataDict = createDataDict(options.data);
+        this.dataDict = createDataDict(self, options.data);
 
         this.displayedRows = [];
 
@@ -162,9 +214,10 @@
             col.render = function (data, type, full, meta) {
                 switch (type) {
                     case "sort":
-                        return buildOrderObject(self, full["tt_key"], col["data"]).child;
+                        result = buildOrderObject(self, self['keyRowId'], self['parentRowId'], col["data"], full);
+                        return result;
                     case "filter":
-                        return buildSearchObject(self, full['tt_key'], col["data"], data);
+                        return buildSearchObject(self, full[self['keyRowId']], col["data"], data);
                     default:
                         return oldRender ? oldRender(data, type, full, meta) : data;
                 }
@@ -172,7 +225,7 @@
             col.type = "tt";
         });
 
-        options.rowId = "tt_key";
+        options.rowId = options.tt_key;
 
         this.$el.find("thead tr").prepend("<th></th>");
 
@@ -182,27 +235,18 @@
             "data": null,
             "defaultContent": "<div class='expander'></div>",
             "width": 50
-        }].concat(options.columns).concat([
-            {
-                "data": "tt_key",
-                "visible": false
-            },
-            {
-                "data": "tt_parent",
-                "visible": false
-            }
-        ]);
+        }].concat(options.columns);
 
         options.createdRow = function (row, data) {
             let cssClass = "";
-            if (self.dataDict[data.tt_key].hasChild) {
+            if (self.dataDict[data[self.keyRowId]].hasChild) {
                 cssClass += " has-child ";
             }
-            if (data.tt_parent > 0) {
+            if (data['tt_parent'] > 0) {
                 cssClass += " has-parent";
             }
 
-            cssClass += " level-" + (level(self, data.tt_key) - 2);
+            cssClass += " level-" + (level(self, data[self.keyRowId]) - 2);
             $(row).addClass(cssClass);
         };
 
@@ -226,9 +270,9 @@
     };
 
     TreeTable.prototype.toggleChildRows = function ($tr) {
-
+        console.log("toggleChildRows");
         const row = this.dt.row($tr);
-        const key = row.data().tt_key;
+        const key = row.data()[this['keyRowId']];
 
         if (this.collapsed.has(key)) {
             this.collapsed.delete(key);
@@ -244,8 +288,8 @@
     TreeTable.prototype.collapseAllRows = function () {
 
         this.data.map((d) => {
-            if (this.dataDict[d.tt_key].hasChild) {
-                this.collapsed.add(d.tt_key);
+            if (this.dataDict[d[this['keyRowId']]].hasChild) {
+                this.collapsed.add(d[this['keyRowId']]);
             }
         });
 
@@ -262,7 +306,6 @@
     };
 
     TreeTable.prototype.redraw = function () {
-
         $.fn.dataTable.ext.search = $.fn.dataTable.ext.search.filter((it, i) => it.name !== "ttExpanded");
 
         if (this.collapsed.size === 0) {
@@ -279,7 +322,7 @@
         const parentRegex = new RegExp(regex);
 
         this.displayedRows = this.dt.rows((idx, data) => {
-            return !hasParent(this, data["tt_key"], parentRegex)
+            return !hasParent(this, data[this['keyRowId']], parentRegex)
         }).eq(0);
 
         const self = this;
@@ -288,6 +331,7 @@
         };
 
         $.fn.dataTable.ext.search.push(ttExpanded);
+        this.dt.sort();
         this.dt.draw();
     };
 
@@ -302,6 +346,7 @@
             const options = $.extend({}, TreeTable.DEFAULTS, typeof option === 'object' && option);
 
             if (!data) $this.data('treeTable', (data = new TreeTable(this, options)));
+
         });
     };
 
